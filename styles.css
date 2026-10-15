@@ -1,0 +1,24 @@
+/* Dropdown rows */
+.inline-ask-thinking {
+	color: var(--text-muted);
+	font-style: italic;
+}
+
+.inline-ask-error {
+	color: var(--text-error);
+}
+
+/* ??? pending in the background */
+.inline-ask-pending {
+	opacity: 0.6;
+	text-decoration: underline dotted var(--text-accent);
+}
+
+.inline-ask-hourglass {
+	opacity: 0.8;
+}
+
+/* Model picker */
+.inline-ask-model-meta {
+	color: var(--text-muted);
+}
