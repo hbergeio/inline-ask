@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Changed
+
+- `???` questions: the static ⏳ pending marker is now an animated moon cycle (🌑 🌒 🌓 🌔 🌕 🌖 🌗 🌘). It is shown
+  as a static 🌑 when the system asks for reduced motion.
+
 ### Fixed
 
 - `???` questions: the ⏳ pending marker followed the cursor when you kept typing (space, Tab or text) right after

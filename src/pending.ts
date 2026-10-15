@@ -1,15 +1,37 @@
 import { StateEffect, StateField, type EditorState } from '@codemirror/state';
 import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
 
-// Pending `???` decorations: the question is dimmed and a ⏳ sits right after it while the answer is fetched.
+// Pending `???` decorations: the question is dimmed and an animated moon sits right after it while the answer is fetched.
 // Decorations only, so the file is never touched while waiting.
 
 export const addPending = StateEffect.define<{ id: number; from: number; to: number }>();
 export const removePending = StateEffect.define<number>();
 
-class HourglassWidget extends WidgetType {
+/** Moon phases cycled while a ??? answer is pending. */
+export const MOON_FRAMES = ['🌑', '🌒', '🌓', '🌔', '🌕', '🌖', '🌗', '🌘'];
+const FRAME_MS = 150;
+
+const timers = new WeakMap<HTMLElement, number>();
+
+class MoonWidget extends WidgetType {
 	toDOM(): HTMLElement {
-		return createSpan({ cls: 'inline-ask-hourglass', text: ' ⏳', attr: { 'aria-label': 'Answering in the background' } });
+		const el = createSpan({ cls: 'inline-ask-moon', attr: { 'aria-label': 'Answering in the background' } });
+		el.setText(` ${MOON_FRAMES[0]}`);
+		if (!window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+			let frame = 0;
+			timers.set(
+				el,
+				window.setInterval(() => {
+					frame = (frame + 1) % MOON_FRAMES.length;
+					el.setText(` ${MOON_FRAMES[frame]}`);
+				}, FRAME_MS),
+			);
+		}
+		return el;
+	}
+	destroy(dom: HTMLElement): void {
+		window.clearInterval(timers.get(dom));
+		timers.delete(dom);
 	}
 	eq(): boolean {
 		return true;
@@ -19,9 +41,9 @@ class HourglassWidget extends WidgetType {
 function pendingDecorations(id: number, from: number, to: number) {
 	return [
 		Decoration.mark({ class: 'inline-ask-pending', jobId: id }).range(from, to),
-		// side -1: the widget belongs to the text before it, so text typed after the closing ??? goes after the ⏳
-		// instead of carrying it along (side 1 made the ⏳ follow the cursor).
-		Decoration.widget({ widget: new HourglassWidget(), side: -1, jobId: id }).range(to),
+		// side -1: the widget belongs to the text before it, so text typed after the closing ??? goes after the moon
+		// instead of carrying it along (side 1 made it follow the cursor).
+		Decoration.widget({ widget: new MoonWidget(), side: -1, jobId: id }).range(to),
 	];
 }
 
@@ -56,12 +78,12 @@ export function markRange(state: EditorState, id: number): { from: number; to: n
 	return mark ? { from: mark.from, to: mark.to } : null;
 }
 
-/** Position of a job's ⏳ widget. */
-export function hourglassPos(state: EditorState, id: number): number | null {
+/** Position of a job's moon widget. */
+export function moonPos(state: EditorState, id: number): number | null {
 	return jobRanges(state, id).find((r) => r.widget)?.from ?? null;
 }
 
-/** Any decoration (mark or ⏳) left for this job. */
+/** Any decoration (mark or moon) left for this job. */
 export function hasPending(state: EditorState, id: number): boolean {
 	return jobRanges(state, id).length > 0;
 }

@@ -13,7 +13,7 @@ Example: type `The answer is ?whats 2+2?` and a dropdown shows `4` / `2 + 2 is 4
 the arrow keys and Enter, and the whole `?whats 2+2?` is replaced. Esc dismisses it and leaves the text as it
 is; so does simply typing on.
 
-With `???`, the question is dimmed with a ⏳ while you keep writing, in this note or another one. When the
+With `???`, the question is dimmed with an animated moon (🌑 → 🌘) while you keep writing, in this note or another one. When the
 answer arrives the plugin finds the exact `???question???` text again (it may have moved) and replaces it. If
 you edited or deleted the question in the meantime, the answer is discarded and a short notice tells you so.
 If the note is not open any more, the file is edited atomically with `vault.process`. Only the note the
