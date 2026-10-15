@@ -1,8 +1,9 @@
-import { StateEffect, StateField, type Extension } from '@codemirror/state';
-import { Decoration, EditorView, WidgetType, type DecorationSet } from '@codemirror/view';
+import type { Extension } from '@codemirror/state';
+import type { EditorView } from '@codemirror/view';
 import { Editor, MarkdownView, Notice, TFile } from 'obsidian';
 import { askReplacement, editorView, type Detected } from './ask';
 import { findNearest } from './parse';
+import { addPending, hasPending, markRange, pendingField, removePending } from './pending';
 import type InlineAskPlugin from './main';
 
 // `???question???` jobs: mark the span as pending with a CodeMirror decoration (the file is never touched while
@@ -15,54 +16,6 @@ interface Job {
 	original: string;
 	/** Last known offset, used to pick the right occurrence if the text appears more than once. */
 	hint: number;
-}
-
-const addPending = StateEffect.define<{ id: number; from: number; to: number }>();
-const removePending = StateEffect.define<number>();
-
-class HourglassWidget extends WidgetType {
-	toDOM(): HTMLElement {
-		return createSpan({ cls: 'inline-ask-hourglass', text: ' ⏳', attr: { 'aria-label': 'Answering in the background' } });
-	}
-	eq(): boolean {
-		return true;
-	}
-}
-
-function pendingDecorations(id: number, from: number, to: number) {
-	return [
-		Decoration.mark({ class: 'inline-ask-pending', jobId: id }).range(from, to),
-		Decoration.widget({ widget: new HourglassWidget(), side: 1, jobId: id }).range(to),
-	];
-}
-
-export const pendingField = StateField.define<DecorationSet>({
-	create: () => Decoration.none,
-	update(deco, tr) {
-		deco = deco.map(tr.changes);
-		for (const e of tr.effects) {
-			if (e.is(addPending)) {
-				deco = deco.update({ add: pendingDecorations(e.value.id, e.value.from, e.value.to), sort: true });
-			} else if (e.is(removePending)) {
-				const id = e.value;
-				deco = deco.update({ filter: (_f, _t, d) => (d.spec as { jobId?: number }).jobId !== id });
-			}
-		}
-		return deco;
-	},
-	provide: (f) => EditorView.decorations.from(f),
-});
-
-function markRange(view: EditorView, id: number): { from: number; to: number } | null {
-	let found: { from: number; to: number } | null = null;
-	view.state.field(pendingField, false)?.between(0, view.state.doc.length, (from, to, d) => {
-		if ((d.spec as { jobId?: number }).jobId === id && from < to) {
-			found = { from, to };
-			return false;
-		}
-		return undefined;
-	});
-	return found;
 }
 
 export class JobManager {
@@ -113,7 +66,7 @@ export class JobManager {
 		for (const { view, cm } of this.openViews()) {
 			const text = cm.state.doc.toString();
 			for (const job of this.jobs.values()) {
-				if (view.file !== job.file || markRange(cm, job.id)) continue;
+				if (view.file !== job.file || markRange(cm.state, job.id)) continue;
 				const at = findNearest(text, job.original, job.hint);
 				if (at !== -1) cm.dispatch({ effects: addPending.of({ id: job.id, from: at, to: at + job.original.length }) });
 			}
@@ -140,9 +93,9 @@ export class JobManager {
 		const views = this.openViews().filter((v) => v.view.file === file);
 		let replaced = false;
 		if (views.length) {
-			const withMark = views.find((v) => markRange(v.cm, job.id)) ?? views[0]!;
+			const withMark = views.find((v) => markRange(v.cm.state, job.id)) ?? views[0]!;
 			const cm = withMark.cm;
-			const mark = markRange(cm, job.id);
+			const mark = markRange(cm.state, job.id);
 			const text = cm.state.doc.toString();
 			const at =
 				mark && text.slice(mark.from, mark.to) === job.original
@@ -173,7 +126,7 @@ export class JobManager {
 
 	private clearDecorations(id: number): void {
 		for (const { cm } of this.openViews()) {
-			if (markRange(cm, id) || hasWidget(cm, id)) cm.dispatch({ effects: removePending.of(id) });
+			if (hasPending(cm.state, id)) cm.dispatch({ effects: removePending.of(id) });
 		}
 	}
 
@@ -187,16 +140,4 @@ export class JobManager {
 		}
 		return out;
 	}
-}
-
-function hasWidget(view: EditorView, id: number): boolean {
-	let found = false;
-	view.state.field(pendingField, false)?.between(0, view.state.doc.length, (_f, _t, d) => {
-		if ((d.spec as { jobId?: number }).jobId === id) {
-			found = true;
-			return false;
-		}
-		return undefined;
-	});
-	return found;
 }
