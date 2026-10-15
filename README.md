@@ -48,7 +48,7 @@ So `Really? Yes?` and `example.com/?a=1` are left alone.
 
 ## API key: per device, never synced
 
-Each device stores its own OpenRouter key in Obsidian's **SecretStorage** (Obsidian 1.11.4+), which lives in
+Each device stores its own OpenRouter key in Obsidian's **SecretStorage**, which lives in
 the app's local storage on that device, outside the vault. It is never written to a note, to `data.json`
 or to the log. The settings tab only shows whether a key is set. (If SecretStorage is ever unavailable, the
 plugin falls back to its own `data.json` on that device.)
@@ -59,7 +59,9 @@ file / customization sync.
 
 ## Settings
 
-- **OpenRouter**: API key (save / replace / clear), Test connection.
+All settings appear in Obsidian's settings search.
+
+- **Connection**: OpenRouter API key (save / replace / clear), Test connection.
 - **Per level** (easy / medium / hard): enabled, model (searchable picker over OpenRouter's live model list,
   showing price and whether the model supports structured output and reasoning), reasoning effort (sent as
   OpenRouter `reasoning: { effort }`; `None` sends no reasoning settings).
@@ -79,7 +81,7 @@ key, no credits, network) show as one row in the dropdown, or as a notice for `?
 
 ## Install
 
-Requires Obsidian 1.11.4 or newer. Works on desktop and mobile (no Node or Electron APIs).
+Requires Obsidian 1.13.0 or newer. Works on desktop and mobile (no Node or Electron APIs).
 
 Manual install: build (below), then copy `main.js`, `manifest.json` and `styles.css` into
 `<vault>/.obsidian/plugins/inline-ask/`, reload Obsidian, and enable **Inline Ask** under

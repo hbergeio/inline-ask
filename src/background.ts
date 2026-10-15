@@ -104,7 +104,7 @@ export class JobManager {
 				if (this.unloaded) return;
 				this.clearDecorations(job.id);
 				this.jobs.delete(job.id);
-				new Notice(`Inline Ask: ??? failed: ${e instanceof Error ? e.message : String(e)}. The question was left as is.`, 8000);
+				new Notice(`Background answer failed: ${e instanceof Error ? e.message : String(e)}. The question was left as is.`, 8000);
 			});
 	}
 
@@ -132,7 +132,7 @@ export class JobManager {
 		const { file } = job;
 		if (this.plugin.app.vault.getAbstractFileByPath(file.path) !== file) {
 			this.clearDecorations(job.id);
-			new Notice('Inline Ask: the note was deleted, so the ??? answer was discarded.');
+			new Notice('Background answer discarded: the note was deleted.');
 			return;
 		}
 
@@ -167,7 +167,7 @@ export class JobManager {
 		}
 		this.clearDecorations(job.id);
 		if (!replaced) {
-			new Notice('Inline Ask: the ??? question was edited or deleted, so the answer was discarded.', 8000);
+			new Notice('Background answer discarded: the question was edited or deleted.', 8000);
 		}
 	}
 

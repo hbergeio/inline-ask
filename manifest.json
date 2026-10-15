@@ -1,8 +1,8 @@
 {
 	"id": "inline-ask",
 	"name": "Inline Ask",
-	"version": "1.0.0",
-	"minAppVersion": "1.11.4",
+	"version": "1.0.1",
+	"minAppVersion": "1.13.0",
 	"description": "Ask an AI inline: wrap a question in ?, ?? or ??? and get answers that replace it in place. Uses your own OpenRouter key.",
 	"author": "Holje Berge",
 	"authorUrl": "https://github.com/hbergeio",

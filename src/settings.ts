@@ -1,4 +1,4 @@
-import { App, Notice, PluginSettingTab, Setting, SuggestModal } from 'obsidian';
+import { App, Notice, PluginSettingTab, Setting, SuggestModal, type SettingDefinitionItem } from 'obsidian';
 import type InlineAskPlugin from './main';
 import { checkKey, complete, listModels, type Effort, type ModelInfo } from './openrouter';
 import type { Level } from './trigger';
@@ -45,6 +45,7 @@ const EFFORTS: Record<Effort, string> = {
 	high: 'High',
 };
 
+/** Declarative settings tab (Obsidian 1.13+), so every setting shows up in Obsidian's settings search. */
 export class InlineAskSettingTab extends PluginSettingTab {
 	constructor(
 		app: App,
@@ -53,161 +54,186 @@ export class InlineAskSettingTab extends PluginSettingTab {
 		super(app, plugin);
 	}
 
-	display(): void {
-		const { containerEl } = this;
-		containerEl.empty();
-		const settings = this.plugin.settings;
-		const save = () => this.plugin.saveSettings();
+	// Control keys are dotted paths into the settings object, e.g. "levels.easy.model".
+	getControlValue(key: string): unknown {
+		let value: unknown = this.plugin.settings;
+		for (const part of key.split('.')) value = (value as Record<string, unknown> | undefined)?.[part];
+		return value;
+	}
 
-		// --- API key -------------------------------------------------------------------------------------------
-		new Setting(containerEl).setName('OpenRouter').setHeading();
+	async setControlValue(key: string, value: unknown): Promise<void> {
+		const parts = key.split('.');
+		const last = parts.pop()!;
+		let target = this.plugin.settings as unknown as Record<string, unknown>;
+		for (const part of parts) target = target[part] as Record<string, unknown>;
+		target[last] = value;
+		await this.plugin.saveSettings();
+	}
+
+	getSettingDefinitions(): SettingDefinitionItem[] {
+		return [
+			{
+				type: 'group',
+				heading: 'Connection',
+				items: [
+					{
+						name: 'API key',
+						desc: 'Your OpenRouter API key.',
+						aliases: ['openrouter', 'key', 'token'],
+						render: (setting) => this.renderKey(setting),
+					},
+					{
+						name: 'Test connection',
+						desc: 'Checks the key and sends a one-word test request to the easy model.',
+						render: (setting) => this.renderTest(setting),
+					},
+				],
+			},
+			...(['easy', 'medium', 'hard'] as Level[]).map((level) => this.levelGroup(level)),
+			{
+				type: 'group',
+				heading: 'Behaviour',
+				items: [
+					{
+						name: 'Alternatives',
+						desc: 'Number of answers in the dropdown.',
+						control: { type: 'slider', key: 'alternatives', min: 2, max: 5, step: 1 },
+					},
+					{
+						name: 'Context words',
+						desc: 'Words of the note before and after the question that are sent along, so answers fit the sentence. Use 0 to send only the question.',
+						control: {
+							type: 'number',
+							key: 'contextWords',
+							min: 0,
+							max: 500,
+							step: 1,
+							defaultValue: DEFAULT_SETTINGS.contextWords,
+							validate: (n) => (Number.isInteger(n) && n >= 0 && n <= 500 ? undefined : 'Enter a whole number from 0 to 500.'),
+						},
+					},
+					{
+						name: 'Background answer timeout (minutes)',
+						desc: 'A background answer that takes longer than this is abandoned, and the question is left as is.',
+						control: {
+							type: 'number',
+							key: 'hardTimeoutMinutes',
+							min: 0.5,
+							max: 60,
+							step: 'any',
+							defaultValue: DEFAULT_SETTINGS.hardTimeoutMinutes,
+							validate: (n) => (n >= 0.5 && n <= 60 ? undefined : 'Enter a number of minutes from 0.5 to 60.'),
+						},
+					},
+				],
+			},
+		];
+	}
+
+	private levelGroup(level: Level): SettingDefinitionItem {
+		const label = LEVEL_LABELS[level];
+		return {
+			type: 'group',
+			heading: `${label.name}: ${label.syntax}`,
+			items: [
+				{ name: 'Enabled', control: { type: 'toggle', key: `levels.${level}.enabled` } },
+				{
+					name: 'Model',
+					aliases: [label.name.toLowerCase(), 'openrouter'],
+					render: (setting) => {
+						const ls = this.plugin.settings.levels[level];
+						setting.setDesc(ls.model).addButton((b) =>
+							b.setButtonText('Choose…').onClick(() => {
+								new ModelPickerModal(this.app, async (m) => {
+									ls.model = m.id;
+									setting.setDesc(m.id);
+									await this.plugin.saveSettings();
+								}).open();
+							}),
+						);
+					},
+				},
+				{
+					name: 'Reasoning effort',
+					desc: 'Sent as reasoning.effort; ignored by models without reasoning.',
+					control: { type: 'dropdown', key: `levels.${level}.effort`, options: EFFORTS },
+				},
+			],
+		};
+	}
+
+	private renderKey(setting: Setting): void {
 		const keys = this.plugin.keys;
-		const hasKey = keys.get() !== null;
 		let draft = '';
-		new Setting(containerEl)
-			.setName('API key')
-			.setDesc(
-				(hasKey ? 'A key is set' : 'No key set') +
-					`. Stored in ${keys.location}; it is never synced or written to a note.`,
-			)
+		let save: HTMLButtonElement | undefined;
+		let clear: HTMLButtonElement | undefined;
+		const refresh = () => {
+			const hasKey = keys.get() !== null;
+			setting.setDesc(
+				`${hasKey ? 'A key is set' : 'No key set'}. Stored in ${keys.location}; it is never synced or written to a note.`,
+			);
+			if (save) save.textContent = hasKey ? 'Replace' : 'Save';
+			if (clear) clear.disabled = !hasKey;
+		};
+		setting
 			.addText((text) => {
 				text.inputEl.type = 'password';
 				text.inputEl.autocomplete = 'off';
-				text.setPlaceholder(hasKey ? 'Paste a new key to replace' : 'sk-or-…').onChange((v) => (draft = v.trim()));
+				text.setPlaceholder('Paste key').onChange((v) => (draft = v.trim()));
 			})
-			.addButton((b) =>
-				b
-					.setButtonText(hasKey ? 'Replace' : 'Save')
-					.setCta()
-					.onClick(async () => {
-						if (!draft) {
-							new Notice('Paste a key first');
-							return;
-						}
-						await keys.set(draft);
-						new Notice('Inline Ask: API key saved');
-						this.display();
-					}),
-			)
-			.addButton((b) =>
-				b
-					.setButtonText('Clear')
-					.setDisabled(!hasKey)
-					.onClick(async () => {
-						await keys.clear();
-						new Notice('Inline Ask: API key cleared');
-						this.display();
-					}),
-			);
+			.addButton((b) => {
+				save = b.buttonEl;
+				b.setCta().onClick(async () => {
+					if (!draft) {
+						new Notice('Paste a key first');
+						return;
+					}
+					await keys.set(draft);
+					new Notice('API key saved');
+					refresh();
+				});
+			})
+			.addButton((b) => {
+				clear = b.buttonEl;
+				b.setButtonText('Clear').onClick(async () => {
+					await keys.clear();
+					new Notice('API key cleared');
+					refresh();
+				});
+			});
+		refresh();
+	}
 
-		const test = new Setting(containerEl)
-			.setName('Test connection')
-			.setDesc('Checks the key and sends a one-word test request to the easy model.');
-		test.addButton((b) =>
+	private renderTest(setting: Setting): void {
+		setting.addButton((b) =>
 			b.setButtonText('Test').onClick(async () => {
-				const key = keys.get();
+				const key = this.plugin.keys.get();
 				if (!key) {
-					test.setDesc('No key set.');
+					setting.setDesc('No key set.');
 					return;
 				}
 				b.setDisabled(true);
-				test.setDesc('Testing…');
+				setting.setDesc('Testing…');
 				try {
 					await checkKey(key);
-					const model = settings.levels.easy.model;
+					const easy = this.plugin.settings.levels.easy;
 					const reply = await complete({
 						apiKey: key,
-						model,
-						effort: settings.levels.easy.effort,
+						model: easy.model,
+						effort: easy.effort,
 						system: 'Reply with exactly: OK',
 						user: 'Test',
 						json: false,
 						timeoutMs: 30_000,
 					});
-					test.setDesc(`Connected. Key is valid; ${model} replied "${reply.trim().slice(0, 40)}".`);
+					setting.setDesc(`Connected. Key is valid; ${easy.model} replied "${reply.trim().slice(0, 40)}".`);
 				} catch (e) {
-					test.setDesc(`Failed: ${e instanceof Error ? e.message : String(e)}`);
+					setting.setDesc(`Failed: ${e instanceof Error ? e.message : String(e)}`);
 				} finally {
 					b.setDisabled(false);
 				}
 			}),
 		);
-
-		// --- Levels --------------------------------------------------------------------------------------------
-		for (const level of ['easy', 'medium', 'hard'] as Level[]) {
-			const ls = settings.levels[level];
-			const label = LEVEL_LABELS[level];
-			new Setting(containerEl).setName(`${label.name}: ${label.syntax}`).setHeading();
-			new Setting(containerEl).setName('Enabled').addToggle((t) =>
-				t.setValue(ls.enabled).onChange(async (v) => {
-					ls.enabled = v;
-					await save();
-				}),
-			);
-			const modelSetting = new Setting(containerEl).setName('Model').setDesc(ls.model);
-			modelSetting.addButton((b) =>
-				b.setButtonText('Choose…').onClick(() => {
-					new ModelPickerModal(this.app, async (m) => {
-						ls.model = m.id;
-						modelSetting.setDesc(m.id);
-						await save();
-					}).open();
-				}),
-			);
-			new Setting(containerEl)
-				.setName('Reasoning effort')
-				.setDesc('Sent as reasoning.effort; ignored by models without reasoning.')
-				.addDropdown((d) =>
-					d
-						.addOptions(EFFORTS)
-						.setValue(ls.effort)
-						.onChange(async (v) => {
-							ls.effort = v as Effort;
-							await save();
-						}),
-				);
-		}
-
-		// --- General -------------------------------------------------------------------------------------------
-		new Setting(containerEl).setName('Behaviour').setHeading();
-		new Setting(containerEl)
-			.setName('Alternatives')
-			.setDesc('How many answers the dropdown shows (for ? and ??).')
-			.addSlider((s) =>
-				s
-					.setLimits(2, 5, 1)
-					.setValue(settings.alternatives)
-					.onChange(async (v) => {
-						settings.alternatives = v;
-						await save();
-					}),
-			);
-		new Setting(containerEl)
-			.setName('Context words')
-			.setDesc(
-				'Words of the note before and after the question that are sent along, so answers fit the sentence. 0 = send only the question.',
-			)
-			.addText((t) =>
-				t.setValue(String(settings.contextWords)).onChange(async (v) => {
-					if (v.trim() === '') return; // mid-edit: an empty field is not 0
-					const n = Number(v);
-					if (!Number.isInteger(n) || n < 0 || n > 500) return;
-					settings.contextWords = n;
-					await save();
-				}),
-			);
-		new Setting(containerEl)
-			.setName('Background answer timeout (minutes)')
-			.setDesc('A ??? answer that takes longer than this is abandoned and the question is left as is.')
-			.addText((t) =>
-				t.setValue(String(settings.hardTimeoutMinutes)).onChange(async (v) => {
-					if (v.trim() === '') return; // mid-edit: an empty field is not 0
-					const n = Number(v);
-					if (!(n >= 0.5 && n <= 60)) return;
-					settings.hardTimeoutMinutes = n;
-					await save();
-				}),
-			);
 	}
 }
 
@@ -218,7 +244,7 @@ class ModelPickerModal extends SuggestModal<ModelInfo> {
 		private onPick: (m: ModelInfo) => void | Promise<void>,
 	) {
 		super(app);
-		this.setPlaceholder('Search OpenRouter models…');
+		this.setPlaceholder('Search models…');
 		this.emptyStateText = 'No matching models';
 	}
 

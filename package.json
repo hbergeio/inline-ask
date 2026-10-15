@@ -1,6 +1,6 @@
 {
 	"name": "inline-ask",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "Obsidian plugin: ask an AI inline with ?question?, ??question?? and ???question???",
 	"main": "main.js",
 	"type": "module",
